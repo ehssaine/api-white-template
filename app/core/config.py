@@ -31,14 +31,6 @@ class Settings(BaseSettings):
 
     max_batch_size: int = 1000
 
-    lgd_unsecured_intercept: float = 0.55
-    lgd_unsecured_beta_gov_10y: float = 0.015
-    lgd_unsecured_beta_dji_var: float = -0.20
-    lgd_unsecured_beta_shift: float = 0.01
-
-    lgd_partial_collateral_ratio: float = 0.40
-    lgd_partial_collateral_haircut: float = 0.25
-
 
 @lru_cache
 def get_settings() -> Settings:

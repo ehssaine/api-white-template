@@ -1,6 +1,6 @@
 from datetime import datetime
 from enum import Enum
-from typing import Annotated
+from typing import Annotated, Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 class LgdMethod(str, Enum):
     FULLY_UNSECURED = "fully_unsecured"
     PARTIALLY_UNSECURED = "partially_unsecured"
+    TORSION_FACTORS = "torsion_factors"
 
 
 class ExcelInput(BaseModel):
@@ -28,32 +29,23 @@ class ExcelInput(BaseModel):
     ]
 
 
-class LgdItemResult(BaseModel):
-    """LGD computation result for a single input record."""
-
-    model_config = ConfigDict(from_attributes=True)
-
-    Year: int
-    Year_proj: int
-    Shif: int
-    gov_eur_10y_raw: float
-    dji_index_Var_lag_fut: float
-    lgd: float = Field(ge=0.0, le=1.0, description="Loss Given Default in [0, 1].")
-    recovery_rate: float = Field(ge=0.0, le=1.0)
-
-
-class LgdComputationResponse(BaseModel):
-    """Response wrapping a full LGD computation batch."""
+class ComputationResponse(BaseModel):
+    """Response wrapping a full computation batch (DataFrame-as-records)."""
 
     computation_id: int
     method: LgdMethod
     created_at: datetime
     count: int
-    average_lgd: float
-    results: list[LgdItemResult]
+    average_lgd: float | None = Field(
+        default=None,
+        description="Mean of the 'lgd' column when present in the result.",
+    )
+    results: list[dict[str, Any]] = Field(
+        description="The library's DataFrame output, converted to records."
+    )
 
 
-class LgdComputationSummary(BaseModel):
+class ComputationSummary(BaseModel):
     """History summary entry (no per-row detail)."""
 
     model_config = ConfigDict(from_attributes=True)
@@ -61,7 +53,7 @@ class LgdComputationSummary(BaseModel):
     id: int
     method: LgdMethod
     count: int
-    average_lgd: float
+    average_lgd: float | None
     created_at: datetime
 
 

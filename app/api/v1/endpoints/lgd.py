@@ -5,16 +5,17 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
-from app.api.deps import db_session, get_calculator
+from app.api.deps import db_session, get_lgd_service
 from app.core.config import Settings, get_settings
 from app.crud import lgd as lgd_crud
 from app.schemas.lgd import (
+    ComputationResponse,
+    ComputationSummary,
     ExcelInput,
-    LgdComputationResponse,
-    LgdComputationSummary,
     LgdMethod,
 )
-from app.services.lgd import LgdCalculator
+from app.services.lgd import LgdService, average_lgd
+from app.services.lgd_forward_looking import LgdForwardLookingError
 
 router = APIRouter()
 
@@ -38,12 +39,20 @@ def _validate_batch(rows: list[ExcelInput], settings: Settings) -> None:
 def _run_and_persist(
     rows: list[ExcelInput],
     method: LgdMethod,
-    calculator: LgdCalculator,
+    service: LgdService,
     db: Session,
-) -> LgdComputationResponse:
-    results = calculator.compute_batch(rows, method)
-    computation = lgd_crud.create_computation(db, method=method, results=results)
-    return LgdComputationResponse(
+) -> ComputationResponse:
+    try:
+        results = service.compute(rows, method)
+    except LgdForwardLookingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY, detail=str(exc)
+        ) from exc
+
+    computation = lgd_crud.create_computation(
+        db, method=method, inputs=rows, results=results
+    )
+    return ComputationResponse(
         computation_id=computation.id,
         method=method,
         created_at=computation.created_at,
@@ -55,85 +64,92 @@ def _run_and_persist(
 
 @router.post(
     "/fully-unsecured",
-    response_model=LgdComputationResponse,
+    response_model=ComputationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Compute LGD assuming a fully unsecured exposure.",
 )
 def compute_fully_unsecured(
     payload: list[ExcelInput],
     db: Annotated[Session, Depends(db_session)],
-    calculator: Annotated[LgdCalculator, Depends(get_calculator)],
+    service: Annotated[LgdService, Depends(get_lgd_service)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> LgdComputationResponse:
+) -> ComputationResponse:
     _validate_batch(payload, settings)
-    return _run_and_persist(payload, LgdMethod.FULLY_UNSECURED, calculator, db)
+    return _run_and_persist(payload, LgdMethod.FULLY_UNSECURED, service, db)
 
 
 @router.post(
     "/partially-unsecured",
-    response_model=LgdComputationResponse,
+    response_model=ComputationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Compute LGD assuming a partially secured (collateralised) exposure.",
 )
 def compute_partially_unsecured(
     payload: list[ExcelInput],
     db: Annotated[Session, Depends(db_session)],
-    calculator: Annotated[LgdCalculator, Depends(get_calculator)],
+    service: Annotated[LgdService, Depends(get_lgd_service)],
     settings: Annotated[Settings, Depends(get_settings)],
-) -> LgdComputationResponse:
+) -> ComputationResponse:
     _validate_batch(payload, settings)
-    return _run_and_persist(payload, LgdMethod.PARTIALLY_UNSECURED, calculator, db)
+    return _run_and_persist(payload, LgdMethod.PARTIALLY_UNSECURED, service, db)
+
+
+@router.post(
+    "/torsion-factors",
+    response_model=ComputationResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Compute torsion factors from the input records.",
+)
+def compute_torsion_factors(
+    payload: list[ExcelInput],
+    db: Annotated[Session, Depends(db_session)],
+    service: Annotated[LgdService, Depends(get_lgd_service)],
+    settings: Annotated[Settings, Depends(get_settings)],
+) -> ComputationResponse:
+    _validate_batch(payload, settings)
+    return _run_and_persist(payload, LgdMethod.TORSION_FACTORS, service, db)
 
 
 @router.get(
     "/history",
-    response_model=list[LgdComputationSummary],
-    summary="List past LGD computations with pagination.",
+    response_model=list[ComputationSummary],
+    summary="List past computations with pagination.",
 )
 def list_history(
     db: Annotated[Session, Depends(db_session)],
     method: LgdMethod | None = Query(default=None, description="Filter by method."),
     limit: int = Query(default=100, ge=1, le=500),
     offset: int = Query(default=0, ge=0),
-) -> list[LgdComputationSummary]:
+) -> list[ComputationSummary]:
     computations = lgd_crud.list_computations(
         db, method=method, limit=limit, offset=offset
     )
-    return [LgdComputationSummary.model_validate(c) for c in computations]
+    return [ComputationSummary.model_validate(c) for c in computations]
 
 
 @router.get(
     "/history/{computation_id}",
-    response_model=LgdComputationResponse,
-    summary="Fetch a single computation (with per-row results).",
+    response_model=ComputationResponse,
+    summary="Fetch a single computation (with the DataFrame-as-JSON results).",
 )
 def get_history_item(
     computation_id: int,
     db: Annotated[Session, Depends(db_session)],
-) -> LgdComputationResponse:
+) -> ComputationResponse:
     computation = lgd_crud.get_computation(db, computation_id)
     if computation is None:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Computation {computation_id} not found.",
         )
-    results = [
-        {
-            "Year": item.year,
-            "Year_proj": item.year_proj,
-            "Shif": item.shif,
-            "gov_eur_10y_raw": item.gov_eur_10y_raw,
-            "dji_index_Var_lag_fut": item.dji_index_var_lag_fut,
-            "lgd": item.lgd,
-            "recovery_rate": item.recovery_rate,
-        }
-        for item in computation.items
-    ]
-    return LgdComputationResponse(
+    results = list(computation.result_json or [])
+    return ComputationResponse(
         computation_id=computation.id,
         method=LgdMethod(computation.method),
         created_at=computation.created_at,
         count=computation.count,
-        average_lgd=computation.average_lgd,
-        results=results,  # type: ignore[arg-type]
+        average_lgd=computation.average_lgd
+        if computation.average_lgd is not None
+        else average_lgd(results),
+        results=results,
     )

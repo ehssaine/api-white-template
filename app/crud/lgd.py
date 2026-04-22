@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+from typing import Any
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.lgd import LgdComputation, LgdComputationItem
-from app.schemas.lgd import LgdItemResult, LgdMethod
+from app.models.lgd import LgdComputation
+from app.schemas.lgd import ExcelInput, LgdMethod
 from app.services.lgd import average_lgd
 
 
@@ -12,24 +14,15 @@ def create_computation(
     db: Session,
     *,
     method: LgdMethod,
-    results: list[LgdItemResult],
+    inputs: list[ExcelInput],
+    results: list[dict[str, Any]],
 ) -> LgdComputation:
     computation = LgdComputation(
         method=method.value,
         count=len(results),
         average_lgd=average_lgd(results),
-        items=[
-            LgdComputationItem(
-                year=r.Year,
-                year_proj=r.Year_proj,
-                shif=r.Shif,
-                gov_eur_10y_raw=r.gov_eur_10y_raw,
-                dji_index_var_lag_fut=r.dji_index_Var_lag_fut,
-                lgd=r.lgd,
-                recovery_rate=r.recovery_rate,
-            )
-            for r in results
-        ],
+        input_json=[r.model_dump() for r in inputs],
+        result_json=results,
     )
     db.add(computation)
     db.commit()

@@ -1,3 +1,3 @@
-from app.models.lgd import LgdComputation, LgdComputationItem
+from app.models.lgd import LgdComputation
 
-__all__ = ["LgdComputation", "LgdComputationItem"]
+__all__ = ["LgdComputation"]
