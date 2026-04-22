@@ -1,0 +1,21 @@
+[tool.pytest.ini_options]
+minversion = "8.0"
+addopts = "-q --strict-markers --tb=short"
+testpaths = ["tests"]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "N", "RUF"]
+ignore = ["N815"]  # ExcelInput fields mirror the Excel header casing on purpose.
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+ignore_missing_imports = true
+plugins = ["pydantic.mypy"]
