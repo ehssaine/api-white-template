@@ -4,6 +4,7 @@ import logging
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, status
+from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from sqlalchemy.exc import SQLAlchemyError
@@ -52,7 +53,7 @@ def create_app() -> FastAPI:
         logger.warning("Validation error on %s: %s", request.url.path, exc.errors())
         return JSONResponse(
             status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            content={"detail": exc.errors()},
+            content=jsonable_encoder({"detail": exc.errors()}),
         )
 
     @app.exception_handler(SQLAlchemyError)
