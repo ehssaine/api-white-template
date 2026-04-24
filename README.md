@@ -8,37 +8,60 @@ history endpoints.
 
 ## Endpoints
 
-| Method | Path                                    | Description                                              |
-|--------|-----------------------------------------|----------------------------------------------------------|
-| POST   | `/api/v1/lgd/fully-unsecured`           | Delegates to `lgd_forward_looking.compute_lgd_fully_unsecured`.     |
-| POST   | `/api/v1/lgd/partially-unsecured`       | Delegates to `lgd_forward_looking.compute_lgd_partially_unsecured`. |
-| POST   | `/api/v1/lgd/torsion-factors`           | Delegates to `lgd_forward_looking.compute_torsion_factors`.         |
-| GET    | `/api/v1/lgd/history`                   | List past computations (filter by method, paginated).    |
-| GET    | `/api/v1/lgd/history/{computation_id}`  | Retrieve a past computation (with DataFrame-as-JSON).    |
-| GET    | `/api/v1/health`                        | Liveness + database probe.                               |
+| Method | Path                                    | Payload         | Description                                              |
+|--------|-----------------------------------------|-----------------|----------------------------------------------------------|
+| POST   | `/api/v1/lgd/fully-unsecured`           | `.xlsx` upload  | Delegates to `lgd_forward_looking.compute_lgd_fully_unsecured`.     |
+| POST   | `/api/v1/lgd/partially-unsecured`       | `.xlsx` upload  | Delegates to `lgd_forward_looking.compute_lgd_partially_unsecured`. |
+| POST   | `/api/v1/lgd/torsion-factors`           | JSON body       | Delegates to `lgd_forward_looking.compute_torsion_factors`.         |
+| GET    | `/api/v1/lgd/history`                   | —               | List past computations (filter by method, paginated).    |
+| GET    | `/api/v1/lgd/history/{computation_id}`  | —               | Retrieve a past computation (with DataFrame-as-JSON).    |
+| GET    | `/api/v1/health`                        | —               | Liveness + database probe.                               |
 
-All three compute endpoints accept a **list** of `ExcelInput` records.
-Each record carries the fixed scenario columns plus an open-ended list
-of macro-economic variables:
+### `ExcelInput` record
+
+Every `ExcelInput` carries the fixed scenario columns plus an open-ended
+list of macro-economic variables:
 
 ```json
-[
-  {
-    "Year": 2023,
-    "Year_proj": 2024,
-    "Shif": 1,
-    "macro_vars": [
-      {"name": "gov_eur_10y_raw", "value": 3.25},
-      {"name": "dji_index_Var_lag_fut", "value": 0.015}
-    ]
-  }
-]
+{
+  "Year": 2023,
+  "Year_proj": 2024,
+  "Shif": 1,
+  "macro_vars": [
+    {"name": "gov_eur_10y_raw", "value": 3.25},
+    {"name": "dji_index_Var_lag_fut", "value": 0.015}
+  ]
+}
 ```
 
 At the JSON → DataFrame boundary, each `macro_vars` entry is spread into
 its own column named after `name`, so the library receives a DataFrame
 shaped like `Year, Year_proj, Shif, gov_eur_10y_raw, dji_index_Var_lag_fut, ...`.
 Records that omit a given variable get `NaN` for that column.
+
+### XLSX upload format
+
+`fully-unsecured` and `partially-unsecured` accept a `multipart/form-data`
+upload with a single `file` field pointing at an `.xlsx` workbook.
+
+* One sheet per scenario, named `MS01`, `MS02`, ... (sorted numerically).
+* Every scenario sheet must have the fixed columns `Year`, `Year_proj`,
+  `Shif`.
+* Every other column is treated as a macro variable — its header becomes
+  `MacroVar.name`, its cell value becomes `MacroVar.value`.
+* Blank cells in macro columns are skipped for that row.
+* Sheets whose name does not match `MS\d+` (e.g. `README`, `Summary`) are
+  ignored.
+
+Example with curl:
+
+```bash
+curl -X POST http://localhost:8000/api/v1/lgd/fully-unsecured \
+  -F "file=@scenarios.xlsx"
+```
+
+The parser lives in `app/services/excel_parser.py` and returns a flat
+`list[ExcelInput]` that the rest of the pipeline processes as before.
 
 ### JSON ↔ DataFrame boundary
 
@@ -67,6 +90,7 @@ app/
   models/                    # ORM tables (LgdComputation)
   schemas/                   # Pydantic request/response models
   services/
+    excel_parser.py          # XLSX -> list[ExcelInput] (MS** sheets)
     lgd.py                   # JSON <-> DataFrame orchestration
     lgd_forward_looking.py   # adapter over the library
   main.py                    # FastAPI application factory

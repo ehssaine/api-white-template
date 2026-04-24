@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import db_session, get_lgd_service
@@ -14,10 +14,17 @@ from app.schemas.lgd import (
     ExcelInput,
     LgdMethod,
 )
+from app.services.excel_parser import ExcelParsingError, parse_excel_bytes
 from app.services.lgd import LgdService, average_lgd
 from app.services.lgd_forward_looking import LgdForwardLookingError
 
 router = APIRouter()
+
+_XLSX_CONTENT_TYPES = {
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.ms-excel",
+    "application/octet-stream",  # some clients (e.g. curl) default to this
+}
 
 
 def _validate_batch(rows: list[ExcelInput], settings: Settings) -> None:
@@ -34,6 +41,34 @@ def _validate_batch(rows: list[ExcelInput], settings: Settings) -> None:
                 f"{settings.max_batch_size}."
             ),
         )
+
+
+async def _rows_from_upload(file: UploadFile) -> list[ExcelInput]:
+    filename = file.filename or ""
+    if not filename.lower().endswith(".xlsx"):
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Only .xlsx files are accepted.",
+        )
+    if file.content_type and file.content_type not in _XLSX_CONTENT_TYPES:
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail=f"Unsupported content type: {file.content_type}.",
+        )
+
+    data = await file.read()
+    if not data:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="Uploaded file is empty.",
+        )
+
+    try:
+        return parse_excel_bytes(data)
+    except ExcelParsingError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)
+        ) from exc
 
 
 def _run_and_persist(
@@ -66,39 +101,41 @@ def _run_and_persist(
     "/fully-unsecured",
     response_model=ComputationResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Compute LGD assuming a fully unsecured exposure.",
+    summary="Compute LGD from an XLSX scenario file (fully unsecured exposure).",
 )
-def compute_fully_unsecured(
-    payload: list[ExcelInput],
+async def compute_fully_unsecured(
     db: Annotated[Session, Depends(db_session)],
     service: Annotated[LgdService, Depends(get_lgd_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    file: Annotated[UploadFile, File(description="XLSX file with MS01, MS02 ... sheets.")],
 ) -> ComputationResponse:
-    _validate_batch(payload, settings)
-    return _run_and_persist(payload, LgdMethod.FULLY_UNSECURED, service, db)
+    rows = await _rows_from_upload(file)
+    _validate_batch(rows, settings)
+    return _run_and_persist(rows, LgdMethod.FULLY_UNSECURED, service, db)
 
 
 @router.post(
     "/partially-unsecured",
     response_model=ComputationResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Compute LGD assuming a partially secured (collateralised) exposure.",
+    summary="Compute LGD from an XLSX scenario file (partially secured exposure).",
 )
-def compute_partially_unsecured(
-    payload: list[ExcelInput],
+async def compute_partially_unsecured(
     db: Annotated[Session, Depends(db_session)],
     service: Annotated[LgdService, Depends(get_lgd_service)],
     settings: Annotated[Settings, Depends(get_settings)],
+    file: Annotated[UploadFile, File(description="XLSX file with MS01, MS02 ... sheets.")],
 ) -> ComputationResponse:
-    _validate_batch(payload, settings)
-    return _run_and_persist(payload, LgdMethod.PARTIALLY_UNSECURED, service, db)
+    rows = await _rows_from_upload(file)
+    _validate_batch(rows, settings)
+    return _run_and_persist(rows, LgdMethod.PARTIALLY_UNSECURED, service, db)
 
 
 @router.post(
     "/torsion-factors",
     response_model=ComputationResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Compute torsion factors from the input records.",
+    summary="Compute torsion factors from a JSON payload.",
 )
 def compute_torsion_factors(
     payload: list[ExcelInput],
