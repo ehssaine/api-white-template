@@ -1,5 +1,5 @@
 from app.crud import lgd as lgd_crud
-from app.schemas.lgd import ExcelInput, LgdMethod
+from app.schemas.lgd import ExcelInput, LgdMethod, MacroVar
 
 
 def _rows(n: int = 2) -> list[ExcelInput]:
@@ -8,8 +8,10 @@ def _rows(n: int = 2) -> list[ExcelInput]:
             Year=2020 + i,
             Year_proj=2021 + i,
             Shif=i,
-            gov_eur_10y_raw=2.0 + i * 0.1,
-            dji_index_Var_lag_fut=0.01 * i,
+            macro_vars=[
+                MacroVar(name="gov_eur_10y_raw", value=2.0 + i * 0.1),
+                MacroVar(name="dji_index_Var_lag_fut", value=0.01 * i),
+            ],
         )
         for i in range(n)
     ]

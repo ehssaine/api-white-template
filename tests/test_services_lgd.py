@@ -5,7 +5,7 @@ import math
 import pandas as pd
 import pytest
 
-from app.schemas.lgd import ExcelInput, LgdMethod
+from app.schemas.lgd import ExcelInput, LgdMethod, MacroVar
 from app.services.lgd import (
     LgdService,
     average_lgd,
@@ -25,29 +25,74 @@ def rows() -> list[ExcelInput]:
             Year=2023,
             Year_proj=2024,
             Shif=1,
-            gov_eur_10y_raw=3.25,
-            dji_index_Var_lag_fut=0.015,
+            macro_vars=[
+                MacroVar(name="gov_eur_10y_raw", value=3.25),
+                MacroVar(name="dji_index_Var_lag_fut", value=0.015),
+            ],
         ),
         ExcelInput(
             Year=2023,
             Year_proj=2025,
             Shif=2,
-            gov_eur_10y_raw=4.10,
-            dji_index_Var_lag_fut=-0.03,
+            macro_vars=[
+                MacroVar(name="gov_eur_10y_raw", value=4.10),
+                MacroVar(name="dji_index_Var_lag_fut", value=-0.03),
+            ],
         ),
     ]
 
 
 def test_rows_to_dataframe_shape(rows) -> None:
     df = rows_to_dataframe(rows)
-    assert list(df.columns) == [
+    assert set(df.columns) == {
         "Year",
         "Year_proj",
         "Shif",
         "gov_eur_10y_raw",
         "dji_index_Var_lag_fut",
-    ]
+    }
     assert len(df) == len(rows)
+    assert df["gov_eur_10y_raw"].tolist() == [3.25, 4.10]
+
+
+def test_rows_to_dataframe_fills_missing_macro_vars_with_nan() -> None:
+    import math
+
+    heterogeneous = [
+        ExcelInput(
+            Year=2023,
+            Year_proj=2024,
+            Shif=0,
+            macro_vars=[MacroVar(name="a", value=1.0)],
+        ),
+        ExcelInput(
+            Year=2023,
+            Year_proj=2024,
+            Shif=0,
+            macro_vars=[MacroVar(name="b", value=2.0)],
+        ),
+    ]
+    df = rows_to_dataframe(heterogeneous)
+    assert math.isnan(df.loc[0, "b"])
+    assert math.isnan(df.loc[1, "a"])
+
+
+def test_excel_input_rejects_duplicate_macro_vars() -> None:
+    with pytest.raises(Exception):  # noqa: B017 - pydantic ValidationError
+        ExcelInput(
+            Year=2023,
+            Year_proj=2024,
+            Shif=0,
+            macro_vars=[
+                MacroVar(name="x", value=1.0),
+                MacroVar(name="x", value=2.0),
+            ],
+        )
+
+
+def test_excel_input_rejects_empty_macro_vars() -> None:
+    with pytest.raises(Exception):  # noqa: B017
+        ExcelInput(Year=2023, Year_proj=2024, Shif=0, macro_vars=[])
 
 
 def test_dataframe_to_records_preserves_values() -> None:

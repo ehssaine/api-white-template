@@ -21,8 +21,23 @@ from app.services.lgd_forward_looking import (
 
 
 def rows_to_dataframe(rows: list[ExcelInput]) -> pd.DataFrame:
-    """Convert the incoming JSON payload into the DataFrame the library expects."""
-    return pd.DataFrame([r.model_dump() for r in rows])
+    """Convert the incoming JSON payload into the DataFrame the library expects.
+
+    ``macro_vars`` entries are flattened into one column per variable name.
+    Rows that omit a given macro variable get ``NaN`` for that column, which
+    matches the convention most pandas-based models use to signal "missing".
+    """
+    records: list[dict[str, Any]] = []
+    for row in rows:
+        record: dict[str, Any] = {
+            "Year": row.Year,
+            "Year_proj": row.Year_proj,
+            "Shif": row.Shif,
+        }
+        for mv in row.macro_vars:
+            record[mv.name] = mv.value
+        records.append(record)
+    return pd.DataFrame(records)
 
 
 def dataframe_to_records(df: pd.DataFrame) -> list[dict[str, Any]]:

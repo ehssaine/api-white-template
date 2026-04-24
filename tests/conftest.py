@@ -97,14 +97,18 @@ def sample_rows() -> list[dict]:
             "Year": 2023,
             "Year_proj": 2024,
             "Shif": 1,
-            "gov_eur_10y_raw": 3.25,
-            "dji_index_Var_lag_fut": 0.015,
+            "macro_vars": [
+                {"name": "gov_eur_10y_raw", "value": 3.25},
+                {"name": "dji_index_Var_lag_fut", "value": 0.015},
+            ],
         },
         {
             "Year": 2023,
             "Year_proj": 2025,
             "Shif": 2,
-            "gov_eur_10y_raw": 4.10,
-            "dji_index_Var_lag_fut": -0.03,
+            "macro_vars": [
+                {"name": "gov_eur_10y_raw", "value": 4.10},
+                {"name": "dji_index_Var_lag_fut", "value": -0.03},
+            ],
         },
     ]

@@ -9,13 +9,7 @@ from __future__ import annotations
 
 import pandas as pd
 
-_REQUIRED_COLUMNS = {
-    "Year",
-    "Year_proj",
-    "Shif",
-    "gov_eur_10y_raw",
-    "dji_index_Var_lag_fut",
-}
+_REQUIRED_COLUMNS = {"Year", "Year_proj", "Shif"}
 
 
 def _check(df: pd.DataFrame) -> None:

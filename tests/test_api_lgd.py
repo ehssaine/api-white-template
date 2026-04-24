@@ -56,6 +56,32 @@ def test_invalid_payload_rejected(client) -> None:
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
 
 
+def test_missing_macro_vars_rejected(client) -> None:
+    response = client.post(
+        "/api/v1/lgd/fully-unsecured",
+        json=[{"Year": 2023, "Year_proj": 2024, "Shif": 1, "macro_vars": []}],
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
+def test_duplicate_macro_var_names_rejected(client) -> None:
+    response = client.post(
+        "/api/v1/lgd/fully-unsecured",
+        json=[
+            {
+                "Year": 2023,
+                "Year_proj": 2024,
+                "Shif": 1,
+                "macro_vars": [
+                    {"name": "x", "value": 1.0},
+                    {"name": "x", "value": 2.0},
+                ],
+            }
+        ],
+    )
+    assert response.status_code == status.HTTP_422_UNPROCESSABLE_ENTITY
+
+
 def test_history_lists_previous_computations(client, sample_rows) -> None:
     client.post("/api/v1/lgd/fully-unsecured", json=sample_rows)
     client.post("/api/v1/lgd/partially-unsecured", json=sample_rows)

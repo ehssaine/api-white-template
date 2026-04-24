@@ -17,7 +17,9 @@ history endpoints.
 | GET    | `/api/v1/lgd/history/{computation_id}`  | Retrieve a past computation (with DataFrame-as-JSON).    |
 | GET    | `/api/v1/health`                        | Liveness + database probe.                               |
 
-All three compute endpoints accept a **list** of `ExcelInput` records:
+All three compute endpoints accept a **list** of `ExcelInput` records.
+Each record carries the fixed scenario columns plus an open-ended list
+of macro-economic variables:
 
 ```json
 [
@@ -25,11 +27,18 @@ All three compute endpoints accept a **list** of `ExcelInput` records:
     "Year": 2023,
     "Year_proj": 2024,
     "Shif": 1,
-    "gov_eur_10y_raw": 3.25,
-    "dji_index_Var_lag_fut": 0.015
+    "macro_vars": [
+      {"name": "gov_eur_10y_raw", "value": 3.25},
+      {"name": "dji_index_Var_lag_fut", "value": 0.015}
+    ]
   }
 ]
 ```
+
+At the JSON → DataFrame boundary, each `macro_vars` entry is spread into
+its own column named after `name`, so the library receives a DataFrame
+shaped like `Year, Year_proj, Shif, gov_eur_10y_raw, dji_index_Var_lag_fut, ...`.
+Records that omit a given variable get `NaN` for that column.
 
 ### JSON ↔ DataFrame boundary
 
